@@ -145,7 +145,8 @@ Write-BatFile (Join-Path $Root "login-grok-browser.bat") $loginBrowserBat
 
 Write-Step "Done"
 Write-Host "1. Run login-grok.bat to sign in to Grok."
-Write-Host "2. Run start-ima2.bat to start ima2."
-Write-Host "3. Open http://127.0.0.1:3333"
+Write-Host "2. Optional: run save-grok-account.bat account-a to add it to the local account pool."
+Write-Host "3. Run start-ima2.bat to start ima2."
+Write-Host "4. Open http://127.0.0.1:3333"
 Write-Host ""
 Write-Host "Grok 1.5 guide: docs\GROK_1_5_VIDEO_CN.md"

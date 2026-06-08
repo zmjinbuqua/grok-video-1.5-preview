@@ -67,6 +67,32 @@ http://127.0.0.1:7892
 docs\GROK_1_5_VIDEO_CN.md
 ```
 
+## Grok 轮询账号池
+
+安装后可以在网页设置里导入多个 Grok OAuth 账号：
+
+1. 运行 `login-grok.bat` 登录一个账号
+2. 打开网页 `设置` -> `账号` -> `Grok 账号池`
+3. 输入账号名，点击 `导入当前登录`
+4. 重复登录和导入即可加入多个账号
+5. 重启 `start-ima2.bat` 后，多账号会按生成任务轮询使用
+
+也保留备用脚本：
+
+```text
+save-grok-account.bat account-a
+list-grok-accounts.bat
+remove-grok-account.bat account-a
+```
+
+账号池保存在：
+
+```text
+.grok-accounts
+```
+
+该目录已经被 `.gitignore` 忽略，不会上传到 GitHub。
+
 ## 不包含的内容
 
 压缩包不会包含：
@@ -74,6 +100,7 @@ docs\GROK_1_5_VIDEO_CN.md
 - `node_modules`
 - `.git`
 - `.ima2`
+- `.grok-accounts`
 - 生成的视频/图片
 - 本机日志
 - 你的 Grok OAuth token

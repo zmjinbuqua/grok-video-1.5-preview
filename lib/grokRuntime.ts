@@ -7,7 +7,29 @@ function normalizeBaseUrl(url: string): string {
   return url.replace(/\/v1\/?$/, "").replace(/\/$/, "");
 }
 
-export function getGrokProxyBaseUrl(ctx: RouteRuntimeContext = {}): string {
+function pickPooledGrokUrl(ctx: RouteRuntimeContext, affinityKey?: string): string | null {
+  const pool = (ctx as { grokProxyPool?: { urls?: string[]; next?: number; sticky?: Record<string, string> } }).grokProxyPool;
+  const urls = pool?.urls?.filter(Boolean) || [];
+  if (urls.length === 0) return null;
+  pool!.sticky ??= {};
+  pool!.next ??= 0;
+  if (affinityKey) {
+    const existing = pool!.sticky[affinityKey];
+    if (existing && urls.includes(existing)) return existing;
+    const picked = urls[pool!.next % urls.length];
+    pool!.next = (pool!.next + 1) % urls.length;
+    pool!.sticky[affinityKey] = picked;
+    return picked;
+  }
+  const picked = urls[pool!.next % urls.length];
+  pool!.next = (pool!.next + 1) % urls.length;
+  return picked;
+}
+
+export function getGrokProxyBaseUrl(ctx: RouteRuntimeContext = {}, affinityKey?: string): string {
+  const pooled = pickPooledGrokUrl(ctx, affinityKey);
+  if (pooled) return normalizeBaseUrl(pooled);
+
   const grokCfg = (ctx.config as any)?.grokProvider || {};
   const explicitUrl = (ctx as { grokUrl?: string }).grokUrl;
   if (explicitUrl) return normalizeBaseUrl(explicitUrl);
@@ -17,9 +39,9 @@ export function getGrokProxyBaseUrl(ctx: RouteRuntimeContext = {}): string {
   return `http://${host}:${port}`;
 }
 
-export function getGrokProxyUrl(ctx: RouteRuntimeContext = {}, path = "/v1"): string {
+export function getGrokProxyUrl(ctx: RouteRuntimeContext = {}, path = "/v1", affinityKey?: string): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  return `${getGrokProxyBaseUrl(ctx)}${normalizedPath}`;
+  return `${getGrokProxyBaseUrl(ctx, affinityKey)}${normalizedPath}`;
 }
 
 export function getGrokDirectBaseUrl(): string {

@@ -13,7 +13,7 @@ import { dirname, join } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { onShutdown } from "./bin/lib/platform.js";
 import { ensureDefaultSession } from "./lib/sessionStore.js";
-import { startGrokProxy } from "./lib/grokProxyLauncher.js";
+import { startGrokProxyPool } from "./lib/grokProxyLauncher.js";
 import { startOAuthProxy } from "./lib/oauthLauncher.js";
 import { migrateGeneratedStorage } from "./lib/storageMigration.js";
 import { purgeStaleJobs } from "./lib/inflight.js";
@@ -33,6 +33,7 @@ import { errInfo } from "./lib/errInfo.js";
 
 type BootRuntimeContext = RuntimeContext & {
   markGrokProxyPort: (info?: { url?: string; port?: number }) => void;
+  markGrokProxyPool: (info?: { urls?: string[] }) => void;
   markOAuthReady: (info?: { url?: string; port?: number }) => void;
   markOAuthFailed: () => void;
 };
@@ -269,6 +270,7 @@ export async function createRuntimeContext(overrides: StartServerOverrides = {})
     serverUrl: `http://${runtimeHostUrl(config.server.host)}:${config.server.port}`,
     grokPort,
     grokActualPort: grokPort,
+    grokProxyPool: undefined,
     grokUrl: `http://${config.grokProvider.proxyHost}:${grokPort}/v1`,
     oauthPort,
     oauthActualPort: oauthPort,
@@ -295,6 +297,11 @@ export async function createRuntimeContext(overrides: StartServerOverrides = {})
       if (port) ctx.grokActualPort = port;
       if (url) ctx.grokUrl = url;
       else if (port) ctx.grokUrl = `http://${ctx.config.grokProvider.proxyHost}:${port}/v1`;
+    },
+    markGrokProxyPool: ({ urls }: { urls?: string[] } = {}) => {
+      const clean = (urls ?? []).filter(Boolean);
+      ctx.grokProxyPool = clean.length > 0 ? { urls: clean, next: 0, sticky: {} } : undefined;
+      if (clean[0]) ctx.grokUrl = clean[0];
     },
     markOAuthReady: ({ url, port }: { url?: string; port?: number } = {}) => {
       if (url) ctx.oauthUrl = url;
@@ -340,7 +347,7 @@ export async function startServer(overrides: StartServerOverrides = {}) {
     ctx.markOAuthReady({ url: ctx.oauthUrl, port: ctx.oauthPort });
   }
   const grokChild = ctx.config.grokProvider.autoStart
-    ? await startGrokProxy({
+    ? await startGrokProxyPool({
         host: ctx.config.grokProvider.proxyHost,
         port: ctx.config.grokProvider.proxyPort,
         restartDelayMs: ctx.config.grokProvider.restartDelayMs,
@@ -350,6 +357,10 @@ export async function startServer(overrides: StartServerOverrides = {}) {
         },
         onReady: ({ url, port }: { url: string; port: number }) => {
           ctx.markGrokProxyPort({ url, port });
+          advertise(ctx);
+        },
+        onPoolReady: ({ urls }: { urls: string[] }) => {
+          ctx.markGrokProxyPool({ urls });
           advertise(ctx);
         },
       })

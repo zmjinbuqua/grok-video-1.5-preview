@@ -231,7 +231,7 @@ export async function searchGrokVisualContext(
 ): Promise<GrokSearchResult> {
   const planner = getPlannerConfig(ctx);
   const payload = buildGrokSearchPayload(prompt, planner.model);
-  const { url, headers } = getGrokEndpoint(ctx, "/v1/responses", options.directApiKey);
+  const { url, headers } = getGrokEndpoint(ctx, "/v1/responses", options.directApiKey, options.requestId);
   const { combinedSignal, timer } = withTimeoutSignal(options.signal, planner.timeoutMs);
 
   logEvent("grok", "search:start", { requestId: options.requestId, plannerModel: planner.model, promptChars: prompt.length });
@@ -314,7 +314,7 @@ export async function planGrokImage(
     search.summary,
     options.references || options.referenceCount || 0,
   );
-  const { url, headers } = getGrokEndpoint(ctx, "/v1/chat/completions", options.directApiKey);
+  const { url, headers } = getGrokEndpoint(ctx, "/v1/chat/completions", options.directApiKey, options.requestId);
   const { combinedSignal, timer } = withTimeoutSignal(options.signal, planner.timeoutMs);
 
   logEvent("grok", "planner:start", { requestId: options.requestId, plannerModel: planner.model, imageModel, size: options.size });
@@ -389,7 +389,7 @@ export async function generateViaGrok(
     size: options.size,
     refs: references.length,
   });
-  const result = await postGrokImages(ctx, payload, options.signal, endpoint, options.directApiKey);
+  const result = await postGrokImages(ctx, payload, options.signal, endpoint, options.directApiKey, options.requestId);
 
   if (!result.data?.[0]?.b64_json) {
     throw grokError("Grok returned empty image data", 502, "GROK_EMPTY_RESPONSE");
@@ -418,7 +418,7 @@ export async function editViaGrok(
   const imageUrl = imageB64.startsWith("data:") ? imageB64 : `data:${detectedInputMime};base64,${imageB64}`;
   const payload: Record<string, unknown> = { model, prompt, n: 1, response_format: "b64_json", image: { type: "image_url", url: imageUrl }, ...mapSizeToGrokImageParams(options.size) };
   logEvent("grok", "edit:start", { requestId: options.requestId, model, promptChars: prompt.length });
-  const result = await postGrokImages(ctx, payload, options.signal, "/v1/images/edits", options.directApiKey);
+  const result = await postGrokImages(ctx, payload, options.signal, "/v1/images/edits", options.directApiKey, options.requestId);
   if (!result.data?.[0]?.b64_json) {
     throw grokError("Grok edit returned empty image data", 502, "GROK_EMPTY_RESPONSE");
   }

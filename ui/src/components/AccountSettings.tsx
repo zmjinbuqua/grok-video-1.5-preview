@@ -7,6 +7,7 @@ import { useI18n } from "../i18n";
 import { ApiKeyInput } from "./ApiKeyInput";
 import { GeminiKeySection } from "./GeminiKeySection";
 import { useKeyStatus } from "../hooks/useKeyStatus";
+import { GrokAccountPool } from "./settings/GrokAccountPool";
 
 function statusLabel(t: (key: string) => string, status?: string): string {
   if (status === "ready") return t("settings.account.status.ready");
@@ -81,6 +82,8 @@ export function AccountSettings() {
           {statusLabel(t, grok?.status)}
         </div>
       </article>
+
+      <GrokAccountPool />
 
       <article className="settings-row">
         <div className="settings-row__copy">

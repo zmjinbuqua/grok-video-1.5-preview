@@ -55,7 +55,7 @@ export interface GrokReferenceImage {
   detectedMime?: string | null;
 }
 
-export function getGrokEndpoint(ctx: RouteRuntimeContext, path = "/v1/images/generations", directApiKey?: string): { url: string; headers: Record<string, string> } {
+export function getGrokEndpoint(ctx: RouteRuntimeContext, path = "/v1/images/generations", directApiKey?: string, affinityKey?: string): { url: string; headers: Record<string, string> } {
   if (directApiKey) {
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
     return {
@@ -64,7 +64,7 @@ export function getGrokEndpoint(ctx: RouteRuntimeContext, path = "/v1/images/gen
     };
   }
   return {
-    url: getGrokProxyUrl(ctx, path),
+    url: getGrokProxyUrl(ctx, path, affinityKey),
     headers: { "Content-Type": "application/json", Authorization: "Bearer dummy" },
   };
 }
@@ -139,8 +139,9 @@ export async function postGrokImages(
   signal?: AbortSignal,
   path = "/v1/images/generations",
   directApiKey?: string,
+  affinityKey?: string,
 ): Promise<GrokImageResponse> {
-  const { url, headers } = getGrokEndpoint(ctx, path, directApiKey);
+  const { url, headers } = getGrokEndpoint(ctx, path, directApiKey, affinityKey);
   const timeoutMs = getGrokTimeout(ctx);
 
   const { combinedSignal, timer } = withTimeoutSignal(signal, timeoutMs);

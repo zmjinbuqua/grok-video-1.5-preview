@@ -1,5 +1,6 @@
 .env
 .ima2/
+.grok-accounts/
 node_modules
 generated/
 .DS_Store

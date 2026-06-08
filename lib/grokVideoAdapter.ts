@@ -117,7 +117,7 @@ function fallbackGrokVideoPlan(
   };
 }
 
-function videoEndpoint(ctx: RouteRuntimeContext, path: string, directApiKey?: string) {
+function videoEndpoint(ctx: RouteRuntimeContext, path: string, directApiKey?: string, affinityKey?: string) {
   if (directApiKey) {
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
     return {
@@ -126,7 +126,7 @@ function videoEndpoint(ctx: RouteRuntimeContext, path: string, directApiKey?: st
     };
   }
   return {
-    url: getGrokProxyUrl(ctx, path),
+    url: getGrokProxyUrl(ctx, path, affinityKey),
     headers: { "Content-Type": "application/json", Authorization: "Bearer dummy" },
   };
 }
@@ -286,7 +286,7 @@ export async function planGrokVideo(prompt: string, ctx: RouteRuntimeContext, op
     referenceImageUrls,
     continuityLineage: options.continuityLineage,
   });
-  const { url, headers } = videoEndpoint(ctx, "/v1/chat/completions", options.directApiKey);
+  const { url, headers } = videoEndpoint(ctx, "/v1/chat/completions", options.directApiKey, options.requestId);
   const { combinedSignal, timer } = withTimeoutSignal(options.signal, cfg.plannerTimeoutMs);
   logEvent("grok", "video:planner:start", { requestId: options.requestId, mode, duration, resolution });
   try {
@@ -331,7 +331,7 @@ export function buildVideoGenerationPayload(plan: GrokVideoPlan, opts: { model: 
 
 export async function startVideoRequest(ctx: RouteRuntimeContext, payload: Record<string, unknown>, options: GrokVideoOptions): Promise<string> {
   const cfg = videoConfig(ctx);
-  const { url, headers } = videoEndpoint(ctx, "/v1/videos/generations", options.directApiKey);
+  const { url, headers } = videoEndpoint(ctx, "/v1/videos/generations", options.directApiKey, options.requestId);
   const { combinedSignal, timer } = withTimeoutSignal(options.signal, cfg.startTimeoutMs);
   try {
     const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload), signal: combinedSignal });
@@ -368,9 +368,9 @@ export function normalizeVideoPoll(data: any): GrokVideoPollResult {
   };
 }
 
-export async function pollVideoOnce(ctx: RouteRuntimeContext, requestId: string, signal?: AbortSignal, directApiKey?: string): Promise<GrokVideoPollResult> {
+export async function pollVideoOnce(ctx: RouteRuntimeContext, requestId: string, signal?: AbortSignal, directApiKey?: string, affinityKey?: string): Promise<GrokVideoPollResult> {
   const cfg = videoConfig(ctx);
-  const { url, headers } = videoEndpoint(ctx, `/v1/videos/${requestId}`, directApiKey);
+  const { url, headers } = videoEndpoint(ctx, `/v1/videos/${requestId}`, directApiKey, affinityKey || requestId);
   const { combinedSignal, timer } = withTimeoutSignal(signal, cfg.startTimeoutMs);
   try {
     const res = await fetch(url, { method: "GET", headers, signal: combinedSignal });
@@ -406,7 +406,7 @@ export async function pollVideoUntilDone(ctx: RouteRuntimeContext, requestId: st
   let lastProgressAt = Date.now();
   for (;;) {
     if (Date.now() > deadline) throw grokError("Grok video poll budget exceeded", 504, "GROK_VIDEO_TIMEOUT");
-    const poll = await pollVideoOnce(ctx, requestId, options.signal, options.directApiKey);
+    const poll = await pollVideoOnce(ctx, requestId, options.signal, options.directApiKey, options.requestId);
     if (poll.status === "done") return poll;
     if (poll.status === "failed" || poll.status === "expired") throw failedToError(poll);
     const progress = poll.progress ?? lastProgress;
