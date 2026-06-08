@@ -286,7 +286,7 @@ export const config = {
     plannerTimeoutMs: pickInt(env.IMA2_GROK_PLANNER_TIMEOUT_MS, fileCfg.grokProvider?.plannerTimeoutMs, 60_000),
     defaultImageModel: pickStr(env.IMA2_GROK_IMAGE_MODEL_DEFAULT, fileCfg.grokProvider?.defaultImageModel, "grok-imagine-image"),
     generationTimeoutMs: pickInt(env.IMA2_GROK_GENERATION_TIMEOUT_MS, fileCfg.grokProvider?.generationTimeoutMs, 120_000),
-    statusTimeoutMs: pickInt(env.IMA2_GROK_STATUS_TIMEOUT_MS, fileCfg.grokProvider?.statusTimeoutMs, 3000),
+    statusTimeoutMs: pickInt(env.IMA2_GROK_STATUS_TIMEOUT_MS, fileCfg.grokProvider?.statusTimeoutMs, 10_000),
     defaultVideoModel: pickStr(env.IMA2_GROK_VIDEO_MODEL_DEFAULT, fileCfg.grokProvider?.defaultVideoModel, "grok-imagine-video"),
     videoStartTimeoutMs: pickInt(env.IMA2_GROK_VIDEO_START_TIMEOUT_MS, fileCfg.grokProvider?.videoStartTimeoutMs, 60_000),
     videoPollIntervalMs: pickInt(env.IMA2_GROK_VIDEO_POLL_INTERVAL_MS, fileCfg.grokProvider?.videoPollIntervalMs, 5_000),

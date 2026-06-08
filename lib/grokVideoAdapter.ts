@@ -103,6 +103,20 @@ function videoConfig(ctx: RouteRuntimeContext): VideoConfig {
   };
 }
 
+function fallbackGrokVideoPlan(
+  prompt: string,
+  opts: { mode: VideoMode; duration: number; resolution: VideoResolution; aspectRatio: VideoAspectRatio },
+): GrokVideoPlan {
+  return {
+    prompt,
+    mode: opts.mode,
+    duration: opts.duration,
+    resolution: opts.resolution,
+    aspectRatio: opts.aspectRatio,
+    webSearchCalls: 0,
+  };
+}
+
 function videoEndpoint(ctx: RouteRuntimeContext, path: string, directApiKey?: string) {
   if (directApiKey) {
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
@@ -249,7 +263,16 @@ export async function planGrokVideo(prompt: string, ctx: RouteRuntimeContext, op
   const duration = options.duration ?? 5;
   const resolution = options.resolution || "480p";
   const aspectRatio = options.aspectRatio || "auto";
-  const search = await searchGrokVisualContext(prompt, ctx, { signal: options.signal, requestId: options.requestId, directApiKey: options.directApiKey });
+  let searchSummary = "";
+  let webSearchCalls = 0;
+  try {
+    const search = await searchGrokVisualContext(prompt, ctx, { signal: options.signal, requestId: options.requestId, directApiKey: options.directApiKey });
+    searchSummary = search.summary;
+    webSearchCalls = 1;
+  } catch (e: any) {
+    if (e?.code === "GENERATION_CANCELED" || options.signal?.aborted) throw e;
+    logEvent("grok", "video:search-fallback", { requestId: options.requestId, code: e?.code, status: e?.status, message: e?.message });
+  }
   const referenceImageUrls = (options.referenceImages ?? []).map((img) => sourceImageUrl(img, undefined));
   const payload = buildGrokVideoPlannerPayload(prompt, {
     model: cfg.model,
@@ -258,7 +281,7 @@ export async function planGrokVideo(prompt: string, ctx: RouteRuntimeContext, op
     resolution,
     aspectRatio,
     plannerModel: options.plannerModel || cfg.plannerModel,
-    searchSummary: search.summary,
+    searchSummary,
     sourceImageUrl: options.sourceImage ? sourceImageUrl(options.sourceImage, options.sourceMime) : undefined,
     referenceImageUrls,
     continuityLineage: options.continuityLineage,
@@ -275,15 +298,17 @@ export async function planGrokVideo(prompt: string, ctx: RouteRuntimeContext, op
     }
     const planPrompt = parseGrokVideoPlanPrompt(await res.json());
     logEvent("grok", "video:planner:done", { requestId: options.requestId, mode, promptChars: planPrompt.length });
-    return { prompt: planPrompt, mode, duration, resolution, aspectRatio, webSearchCalls: 1 };
+    return { prompt: planPrompt, mode, duration, resolution, aspectRatio, webSearchCalls };
   } catch (e: any) {
     clearTimeout(timer);
     if (e.name === "AbortError") {
       if (options.signal?.aborted) throw grokError("Generation canceled", 499, "GENERATION_CANCELED");
-      throw grokError("Grok video planner timed out", 504, "GROK_PLANNER_TIMEOUT");
+      logEvent("grok", "video:planner-fallback", { requestId: options.requestId, code: "GROK_PLANNER_TIMEOUT", status: 504 });
+      return fallbackGrokVideoPlan(prompt, { mode, duration, resolution, aspectRatio });
     }
-    if (e.code && e.status) throw e;
-    throw grokError(`Grok video planner request failed: ${e.message}`, 502, "GROK_PLANNER_NETWORK_FAILED");
+    if (e?.code === "GENERATION_CANCELED" || options.signal?.aborted) throw e;
+    logEvent("grok", "video:planner-fallback", { requestId: options.requestId, code: e?.code || "GROK_PLANNER_NETWORK_FAILED", status: e?.status || 502, message: e?.message });
+    return fallbackGrokVideoPlan(prompt, { mode, duration, resolution, aspectRatio });
   }
 }
 

@@ -23,6 +23,8 @@ __pycache__/
 /bin/commands/*.js
 /bin/lib/*.js
 *.tgz
+ima2-server.log
+ima2-server.err.log
 
 # Test experiment outputs (generated images)
 tests/experiments/

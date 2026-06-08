@@ -5,9 +5,10 @@ import { getGrokProxyUrl } from "../lib/grokRuntime.js";
 export function registerGrokRoutes(app: Express, ctx: RouteRuntimeContext) {
   app.get("/api/grok/status", async (_req, res) => {
     const grokCfg = (ctx.config as any).grokProvider || {};
-    const timeoutMs = grokCfg.statusTimeoutMs || 3000;
+    const timeoutMs = grokCfg.statusTimeoutMs || 10_000;
     try {
       const r = await fetch(getGrokProxyUrl(ctx, "/v1/models"), {
+        headers: { Authorization: "Bearer dummy" },
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (r.ok) {
