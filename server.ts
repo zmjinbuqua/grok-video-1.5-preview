@@ -30,10 +30,12 @@ import { stopAgentQueueWorker } from "./lib/agentQueueWorker.js";
 import { reapCardNewsJobs } from "./lib/cardNewsJobStore.js";
 import { reapTerminalJobs } from "./lib/inflight.js";
 import { errInfo } from "./lib/errInfo.js";
+import { configureAutoProxy, logProxyAutoDetect } from "./lib/proxyAutoDetect.js";
 
 type BootRuntimeContext = RuntimeContext & {
   markGrokProxyPort: (info?: { url?: string; port?: number }) => void;
   markGrokProxyPool: (info?: { urls?: string[] }) => void;
+  grokProxyReload?: () => Promise<{ activeProxyCount: number }>;
   markOAuthReady: (info?: { url?: string; port?: number }) => void;
   markOAuthFailed: () => void;
 };
@@ -302,6 +304,7 @@ export async function createRuntimeContext(overrides: StartServerOverrides = {})
       const clean = (urls ?? []).filter(Boolean);
       ctx.grokProxyPool = clean.length > 0 ? { urls: clean, next: 0, sticky: {} } : undefined;
       if (clean[0]) ctx.grokUrl = clean[0];
+      else ctx.grokUrl = `http://${ctx.config.grokProvider.proxyHost}:${ctx.grokPort}/v1`;
     },
     markOAuthReady: ({ url, port }: { url?: string; port?: number } = {}) => {
       if (url) ctx.oauthUrl = url;
@@ -325,6 +328,8 @@ export async function createRuntimeContext(overrides: StartServerOverrides = {})
 }
 
 export async function startServer(overrides: StartServerOverrides = {}) {
+  const proxy = await configureAutoProxy();
+  logProxyAutoDetect(proxy);
   const ctx = await createRuntimeContext(overrides);
   await migrateGeneratedStorage(ctx);
   purgeStaleJobs();
@@ -346,8 +351,9 @@ export async function startServer(overrides: StartServerOverrides = {}) {
   if (overrides.oauthChild !== undefined || !ctx.config.oauth.autoStart) {
     ctx.markOAuthReady({ url: ctx.oauthUrl, port: ctx.oauthPort });
   }
-  const grokChild = ctx.config.grokProvider.autoStart
-    ? await startGrokProxyPool({
+  let grokChild: Awaited<ReturnType<typeof startGrokProxyPool>> | null = null;
+  const startManagedGrokProxyPool = () =>
+    startGrokProxyPool({
         host: ctx.config.grokProvider.proxyHost,
         port: ctx.config.grokProvider.proxyPort,
         restartDelayMs: ctx.config.grokProvider.restartDelayMs,
@@ -363,8 +369,19 @@ export async function startServer(overrides: StartServerOverrides = {}) {
           ctx.markGrokProxyPool({ urls });
           advertise(ctx);
         },
-      })
-    : null;
+      });
+  if (ctx.config.grokProvider.autoStart) {
+    grokChild = await startManagedGrokProxyPool();
+    ctx.grokProxyReload = async () => {
+      try { grokChild?.stop?.(); } catch {}
+      try { grokChild?.kill?.(); } catch {}
+      ctx.markGrokProxyPool({ urls: [] });
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      grokChild = await startManagedGrokProxyPool();
+      advertise(ctx);
+      return { activeProxyCount: ctx.grokProxyPool?.urls?.length || 0 };
+    };
+  }
 
   let server: import("node:net").Server;
   let reapTimer: NodeJS.Timeout;

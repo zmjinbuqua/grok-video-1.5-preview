@@ -54,6 +54,13 @@
     "integrations/comfyui/ima2_gen_bridge/README.md",
     "ui/dist/",
     "docs/",
+    "detect-proxy.ps1",
+    "install-ima2.bat",
+    "install-ima2.ps1",
+    "start-ima2.bat",
+    "start-ima2.ps1",
+    "login-grok.bat",
+    "login-grok-browser.bat",
     "vendor/",
     "assets/card-news/templates/",
     ".env.example",
@@ -77,7 +84,8 @@
     "progrok": "file:vendor/progrok-0.2.0.tgz",
     "sharp": "^0.34.5",
     "trash": "^10.1.1",
-    "ulid": "^3.0.2"
+    "ulid": "^3.0.2",
+    "undici": "^6.26.0"
   },
   "bundleDependencies": [
     "progrok"

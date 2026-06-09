@@ -1,5 +1,6 @@
 import type { RouteRuntimeContext } from "./runtimeContext.js";
 import { grokError } from "./grokImageAdapter.js";
+import { logEvent, logWarn } from "./logger.js";
 
 const MAX_VIDEO_DOWNLOAD_BYTES = 100 * 1024 * 1024;
 
@@ -15,19 +16,44 @@ function withTimeoutSignal(signal: AbortSignal | undefined, timeoutMs: number) {
   return { combinedSignal, timer };
 }
 
+function proxyUrlForDownload(): string | null {
+  return process.env.HTTPS_PROXY
+    || process.env.https_proxy
+    || process.env.HTTP_PROXY
+    || process.env.http_proxy
+    || null;
+}
+
+async function fetchVideo(url: string, signal: AbortSignal, useProxy: boolean): Promise<Response> {
+  if (!useProxy) return fetch(url, { signal });
+  const proxyUrl = proxyUrlForDownload();
+  if (!proxyUrl) return fetch(url, { signal });
+  const { ProxyAgent } = await import("undici");
+  return fetch(url, {
+    signal,
+    dispatcher: new ProxyAgent(proxyUrl),
+  } as RequestInit & { dispatcher: unknown });
+}
+
 export function isMp4Container(buffer: Buffer): boolean {
   return buffer.length >= 12 && buffer.subarray(4, 8).toString("ascii") === "ftyp";
 }
 
 export async function downloadVideo(ctx: RouteRuntimeContext, url: string, signal?: AbortSignal): Promise<{ buffer: Buffer; contentType: string }> {
   const { combinedSignal, timer } = withTimeoutSignal(signal, downloadTimeoutMs(ctx));
+  let parsed: URL | null = null;
+  const proxyUrl = proxyUrlForDownload();
   try {
-    const parsed = new URL(url);
+    parsed = new URL(url);
     const isLoopback = ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname);
     if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && isLoopback)) {
       throw grokError("Grok video download URL must be HTTPS", 502, "GROK_VIDEO_DOWNLOAD_FAILED");
     }
-    const res = await fetch(url, { signal: combinedSignal });
+    logEvent("grok", "video:download:start", {
+      host: parsed.hostname,
+      proxy: proxyUrl ? "enabled" : "none",
+    });
+    const res = await fetchVideo(url, combinedSignal, !isLoopback);
     if (!res.ok) throw grokError(`Grok video download failed: HTTP ${res.status}`, 502, "GROK_VIDEO_DOWNLOAD_FAILED");
     const contentLength = Number(res.headers.get("content-length") || "0");
     if (contentLength > MAX_VIDEO_DOWNLOAD_BYTES) {
@@ -46,6 +72,11 @@ export async function downloadVideo(ctx: RouteRuntimeContext, url: string, signa
     if (!isMp4Container(buffer)) {
       throw grokError("Grok video download returned an invalid MP4 container", 502, "GROK_VIDEO_DOWNLOAD_FAILED");
     }
+    logEvent("grok", "video:download:done", {
+      host: parsed.hostname,
+      bytes: buffer.length,
+      contentType,
+    });
     return { buffer, contentType };
   } catch (e: any) {
     clearTimeout(timer);
@@ -54,6 +85,11 @@ export async function downloadVideo(ctx: RouteRuntimeContext, url: string, signa
       throw grokError("Grok video download timed out", 504, "GROK_VIDEO_TIMEOUT");
     }
     if (e.code && e.status) throw e;
-    throw grokError(`Grok video download request failed: ${e.message}`, 502, "GROK_VIDEO_DOWNLOAD_FAILED");
+    logWarn("grok", "video:download:failed", {
+      host: parsed?.hostname || "unknown",
+      proxy: proxyUrl ? "enabled" : "none",
+      message: e?.message || String(e),
+    });
+    throw grokError(`Grok video download request failed from ${parsed?.hostname || "unknown"} with proxy ${proxyUrl ? "enabled" : "none"}: ${e.message}`, 502, "GROK_VIDEO_DOWNLOAD_FAILED");
   }
 }

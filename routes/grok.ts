@@ -1,9 +1,20 @@
 import type { Express } from "express";
 import type { RouteRuntimeContext } from "../lib/runtimeContext.js";
 import { getGrokProxyUrl } from "../lib/grokRuntime.js";
-import { deleteGrokPoolAccount, grokPoolInfo, importCurrentGrokAccount } from "../lib/grokAccountPool.js";
+import { checkGrokPoolAccount } from "../lib/grokAccountCheck.js";
+import { deleteGrokPoolAccount, grokPoolInfo, importBulkGrokAccounts, importCurrentGrokAccount, importRawGrokAccount, setGrokPoolAccountEnabled } from "../lib/grokAccountPool.js";
+import { cancelGrokAccountLogin, cleanupFinishedGrokLogins, getGrokAccountLogin, startGrokAccountLogin } from "../lib/grokAccountLogin.js";
 
 export function registerGrokRoutes(app: Express, ctx: RouteRuntimeContext) {
+  const reloadedLoginSessions = new Set<string>();
+  const activeProxyCount = () => (ctx as { grokProxyPool?: { urls?: string[] } }).grokProxyPool?.urls?.length || 0;
+  const reloadGrokProxyPool = async () => {
+    const reload = (ctx as { grokProxyReload?: () => Promise<{ activeProxyCount: number }> }).grokProxyReload;
+    if (!reload) return { activeProxyCount: activeProxyCount(), restartRequired: true };
+    const result = await reload();
+    return { activeProxyCount: result.activeProxyCount, restartRequired: false };
+  };
+
   app.get("/api/grok/status", async (_req, res) => {
     const grokCfg = (ctx.config as any).grokProvider || {};
     const timeoutMs = grokCfg.statusTimeoutMs || 10_000;
@@ -27,24 +38,93 @@ export function registerGrokRoutes(app: Express, ctx: RouteRuntimeContext) {
   app.get("/api/grok/accounts", (_req, res) => {
     res.json({
       ...grokPoolInfo(),
-      activeProxyCount: (ctx as { grokProxyPool?: { urls?: string[] } }).grokProxyPool?.urls?.length || 0,
+      restartRequired: !ctx.grokProxyReload,
+      activeProxyCount: activeProxyCount(),
     });
   });
 
-  app.post("/api/grok/accounts/import", (req, res) => {
+  app.post("/api/grok/accounts/import", async (req, res) => {
     try {
       const name = String(req.body?.name || "").trim();
       const account = importCurrentGrokAccount(name);
-      res.json({ account, restartRequired: true });
+      res.json({ account, ...(await reloadGrokProxyPool()) });
     } catch (e: any) {
       res.status(e?.status || 500).json({ error: e?.message || "failed to import Grok account" });
     }
   });
 
-  app.delete("/api/grok/accounts/:name", (req, res) => {
+  app.post("/api/grok/accounts/import-token", async (req, res) => {
+    try {
+      const name = String(req.body?.name || "").trim();
+      const account = importRawGrokAccount(name, req.body?.tokenJson ?? req.body?.token);
+      res.json({ account, ...(await reloadGrokProxyPool()) });
+    } catch (e: any) {
+      res.status(e?.status || 500).json({ error: e?.message || "failed to import Grok token" });
+    }
+  });
+
+  app.post("/api/grok/accounts/import-bulk", async (req, res) => {
+    try {
+      const result = importBulkGrokAccounts(String(req.body?.text || ""));
+      res.json({ ...result, ...(await reloadGrokProxyPool()) });
+    } catch (e: any) {
+      res.status(e?.status || 500).json({ error: e?.message || "failed to import Grok accounts" });
+    }
+  });
+
+  app.post("/api/grok/accounts/login", (_req, res) => {
+    try {
+      cleanupFinishedGrokLogins();
+      res.json(startGrokAccountLogin());
+    } catch (e: any) {
+      res.status(e?.status || 500).json({ error: e?.message || "failed to start Grok login" });
+    }
+  });
+
+  app.get("/api/grok/accounts/login/:id", async (req, res) => {
+    try {
+      const session = getGrokAccountLogin(req.params.id);
+      if (session.status === "success" && !reloadedLoginSessions.has(session.id)) {
+        reloadedLoginSessions.add(session.id);
+        res.json({ ...session, ...(await reloadGrokProxyPool()) });
+        return;
+      }
+      res.json(session);
+    } catch (e: any) {
+      res.status(e?.status || 500).json({ error: e?.message || "failed to read Grok login" });
+    }
+  });
+
+  app.post("/api/grok/accounts/login/:id/cancel", (req, res) => {
+    try {
+      res.json(cancelGrokAccountLogin(req.params.id));
+    } catch (e: any) {
+      res.status(e?.status || 500).json({ error: e?.message || "failed to cancel Grok login" });
+    }
+  });
+
+  app.patch("/api/grok/accounts/:name", async (req, res) => {
+    try {
+      const enabled = req.body?.enabled !== false;
+      const account = setGrokPoolAccountEnabled(req.params.name, enabled);
+      res.json({ account, ...(await reloadGrokProxyPool()) });
+    } catch (e: any) {
+      res.status(e?.status || 500).json({ error: e?.message || "failed to update Grok account" });
+    }
+  });
+
+  app.post("/api/grok/accounts/:name/check", async (req, res) => {
+    try {
+      res.json(await checkGrokPoolAccount(req.params.name));
+    } catch (e: any) {
+      res.status(e?.status || 500).json({ error: e?.message || "failed to check Grok account" });
+    }
+  });
+
+  app.delete("/api/grok/accounts/:name", async (req, res) => {
     try {
       deleteGrokPoolAccount(req.params.name);
-      res.json({ ok: true, restartRequired: true });
+      res.json({ ok: true, ...(await reloadGrokProxyPool()) });
     } catch (e: any) {
       res.status(e?.status || 500).json({ error: e?.message || "failed to delete Grok account" });
     }

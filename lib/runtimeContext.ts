@@ -16,6 +16,7 @@ export interface RuntimeContext {
     next: number;
     sticky: Record<string, string>;
   };
+  grokProxyReload?: () => Promise<{ activeProxyCount: number }>;
   grokUrl: string;
   hasApiKey: boolean;
   oauthActualPort: number | undefined;
@@ -152,6 +153,7 @@ export function createTestRuntimeContext(over: RuntimeContextOverrides = {}): Ru
     grokActualPort: undefined,
     grokPort: 18645,
     grokProxyPool: undefined,
+    grokProxyReload: undefined,
     grokUrl: "http://127.0.0.1:18645/v1",
     hasApiKey: false,
     oauthActualPort: undefined,
